@@ -27,17 +27,28 @@ docker compose up -d --no-build --pull always
 
 Back up the data volume before upgrading. It contains credentials in unencrypted SQLite; protect it like other local secrets. Do not share a data volume between multiple running app instances. `docker compose down` keeps the Compose volume; `docker compose down -v` permanently removes it.
 
-## Publishing an image
+## Releases and CI
 
-The `Publish Docker image` GitHub Actions workflow builds Linux AMD64 and ARM64 images and pushes them to `alzalabany/kafka-browser`. Add a Docker Hub access token with write permission as repository Actions secret **DOCKERHUB_TOKEN**, then run the workflow manually or push a release tag such as `v0.1.0`. Tags include `latest`, the release version for version tags, and the Git commit. The build runs lint, tests, and the production build. Local SQLite data, certificate files, environment files, screenshots, and Git history are excluded from the Docker build context with an allowlist.
+The **CI** workflow runs lint, TypeScript checks, tests, and a production build on pull requests and pushes to `master`.
 
-To publish manually after logging into Docker Hub:
+To release, update the version in `package.json` and `package-lock.json`, commit and push it, then push a matching version tag:
 
 ```sh
-docker buildx build --platform linux/amd64,linux/arm64 -t alzalabany/kafka-browser:latest -t alzalabany/kafka-browser:0.1.0 --push .
+npm version patch
+git push origin master --follow-tags
 ```
 
-This requires a multi-platform-capable Buildx builder. The image is built independently for each target platform so its SQLite native addon matches the target architecture.
+`npm version patch` creates a version commit and tag (use `minor`, `major`, or an explicit version when appropriate). The **Release** workflow validates that the tag matches `package.json`, builds and checks the Docker image for Linux AMD64 and ARM64, publishes to `ghcr.io/alzalabany/kafka-browser`, and creates a GitHub release with generated change notes and the image digest only after publishing succeeds. Stable releases get `latest`, `vX.Y.Z`, and `X.Y.Z` image tags. Prereleases such as `v0.2.0-beta.1` do not move `latest`. To retry a release, use **Actions → Release → Run workflow** and enter the existing tag.
+
+GHCR uses the built-in GitHub token; no registry secret is needed. GitHub packages initially default to private: after the first publication, change the package visibility to public in its package settings if you want anonymous pulls. Then users can run:
+
+```sh
+docker run -d --name kafka-browser --init --restart unless-stopped -p 127.0.0.1:3000:3000 -v kafka-browser-data:/data ghcr.io/alzalabany/kafka-browser:latest
+```
+
+To also publish to Docker Hub, add repository Actions variable **DOCKERHUB_USERNAME** (the account that owns the destination repository) and Actions secret **DOCKERHUB_TOKEN** (a Docker Hub access token with write permission). Releases then publish the same images to `<DOCKERHUB_USERNAME>/kafka-browser`. Without both settings, Docker Hub is skipped. Browser/desktop Docker logins are not available to GitHub runners.
+
+Local SQLite data, certificate files, environment files, screenshots, and Git history are excluded from the Docker build context with an allowlist. Images are built independently for each target platform so the SQLite native addon matches its architecture.
 
 ## Run from source
 
