@@ -1,20 +1,30 @@
 # Kafka Browser
 
-## Run with Docker
+## Run in the background with Docker
 
 ```sh
-docker run -d --name kafka-browser --init --restart unless-stopped -p 127.0.0.1:3000:3000 -v kafka-browser-data:/data alzalabany/kafka-browser:latest
+docker run -d --name kafka-browser --init --restart unless-stopped -p 127.0.0.1:8097:3000 -v kafka-browser-data:/data ghcr.io/alzalabany/kafka-browser:latest
 ```
 
-Open http://localhost:3000 and add your Kafka connection. Upload your own certificate/key files in the app; the image contains no saved connections or credentials. SQLite, uploaded credentials, presets, selections, and table settings persist in the named `kafka-browser-data` volume across container replacements. Binding to `127.0.0.1` keeps this single-user tool local. If port 3000 is busy, use `-p 127.0.0.1:3001:3000` and open port 3001 instead.
+The command runs detached, so you can close your terminal. Docker restarts it after Docker or your machine restarts, unless you explicitly stop it. On Docker Desktop, enable **Start Docker Desktop when you sign in** for automatic startup.
+
+Open http://localhost:8097 and add your Kafka connection. Upload your own certificate/key files in the app; the image contains no saved connections or credentials. SQLite, uploaded credentials, presets, selections, and table settings persist in the named `kafka-browser-data` volume across container replacements. Binding to `127.0.0.1` keeps this single-user tool local. If port 8097 is busy, choose another host port, for example `-p 127.0.0.1:8098:3000`.
+
+Manage it anytime:
+
+```sh
+docker stop kafka-browser       # stop until you start it again
+docker start kafka-browser      # resume
+docker logs --tail 100 kafka-browser
+```
 
 To update (keeps the data volume):
 
 ```sh
-docker pull alzalabany/kafka-browser:latest
+docker pull ghcr.io/alzalabany/kafka-browser:latest
 docker stop kafka-browser
 docker rm kafka-browser
-docker run -d --name kafka-browser --init --restart unless-stopped -p 127.0.0.1:3000:3000 -v kafka-browser-data:/data alzalabany/kafka-browser:latest
+docker run -d --name kafka-browser --init --restart unless-stopped -p 127.0.0.1:8097:3000 -v kafka-browser-data:/data ghcr.io/alzalabany/kafka-browser:latest
 ```
 
 Or, from this repository, use the included Compose file:
@@ -43,7 +53,7 @@ git push origin master --follow-tags
 GHCR uses the built-in GitHub token; no registry secret is needed. GitHub packages initially default to private: after the first publication, change the package visibility to public in its package settings if you want anonymous pulls. Then users can run:
 
 ```sh
-docker run -d --name kafka-browser --init --restart unless-stopped -p 127.0.0.1:3000:3000 -v kafka-browser-data:/data ghcr.io/alzalabany/kafka-browser:latest
+docker run -d --name kafka-browser --init --restart unless-stopped -p 127.0.0.1:8097:3000 -v kafka-browser-data:/data ghcr.io/alzalabany/kafka-browser:latest
 ```
 
 To also publish to Docker Hub, add repository Actions variable **DOCKERHUB_USERNAME** (the account that owns the destination repository) and Actions secret **DOCKERHUB_TOKEN** (a Docker Hub access token with write permission). Releases then publish the same images to `<DOCKERHUB_USERNAME>/kafka-browser`. Without both settings, Docker Hub is skipped. Browser/desktop Docker logins are not available to GitHub runners.
