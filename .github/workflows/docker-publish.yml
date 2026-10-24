@@ -92,8 +92,79 @@ jobs:
           if [[ -z "$DOCKERHUB_TOKEN" || -z "$DOCKERHUB_USERNAME" ]]; then
             echo 'Docker Hub skipped: set DOCKERHUB_USERNAME variable and DOCKERHUB_TOKEN secret to enable it.' >> "$GITHUB_STEP_SUMMARY"
           fi
+  desktop:
+    name: Desktop (${{ matrix.platform }})
+    runs-on: ${{ matrix.runner }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: windows-latest
+            platform: windows-x64
+            target: --win --x64
+          - runner: macos-15
+            platform: mac-arm64
+            target: --mac --arm64
+          - runner: macos-15-intel
+            platform: mac-x64
+            target: --mac --x64
+    env:
+      CSC_IDENTITY_AUTO_DISCOVERY: 'false'
+      ELECTRON_SKIP_BINARY_DOWNLOAD: '1'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: refs/tags/${{ inputs.tag || github.ref_name }}
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+      - run: npm ci
+      - name: Download Electron
+        run: node node_modules/electron/install.js
+        env:
+          ELECTRON_SKIP_BINARY_DOWNLOAD: ''
+      - name: Validate version
+        env:
+          TAG: ${{ inputs.tag || github.ref_name }}
+        run: node -e 'if (require("./package.json").version !== process.env.TAG.slice(1)) throw new Error("Tag must match package.json version")'
+      - run: npm run lint
+      - run: npm test
+      - name: Build desktop installers
+        run: npm run desktop:pack -- ${{ matrix.target }}
+      - name: Smoke test packaged app (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $env:KAFKA_BROWSER_SMOKE_DATA_DIR = Join-Path $env:RUNNER_TEMP 'desktop-smoke'
+          $app = Start-Process -FilePath 'dist-desktop/win-unpacked/Kafka Browser.exe' -ArgumentList '--smoke-test' -PassThru
+          if (-not $app.WaitForExit(90000)) { $app.Kill(); throw 'Desktop smoke test timed out' }
+          if ($app.ExitCode -ne 0) { throw "Desktop smoke test failed: $($app.ExitCode)" }
+      - name: Smoke test packaged app (macOS)
+        if: runner.os == 'macOS'
+        shell: bash
+        env:
+          KAFKA_BROWSER_SMOKE_DATA_DIR: ${{ runner.temp }}/desktop-smoke
+        run: |
+          set -euo pipefail
+          app=$(find dist-desktop -path '*/Kafka Browser.app/Contents/MacOS/Kafka Browser' -type f -print -quit)
+          test -n "$app"
+          "$app" --smoke-test &
+          pid=$!
+          (sleep 90; kill "$pid" 2>/dev/null) &
+          watchdog=$!
+          trap 'kill "$watchdog" 2>/dev/null || true' EXIT
+          wait "$pid"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: desktop-${{ matrix.platform }}
+          path: |
+            dist-desktop/*.exe
+            dist-desktop/*.dmg
+            dist-desktop/*.zip
+          if-no-files-found: error
   release:
-    needs: publish
+    needs: [publish, desktop]
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -102,6 +173,11 @@ jobs:
         with:
           ref: refs/tags/${{ needs.publish.outputs.tag }}
           fetch-depth: 0
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: desktop-*
+          path: installers
+          merge-multiple: true
       - name: Create GitHub release
         env:
           GH_TOKEN: ${{ github.token }}
@@ -112,11 +188,18 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
+          (cd installers && sha256sum * > SHA256SUMS.txt)
+          printf 'Docker image (AMD64 and ARM64):\n\n```sh\ndocker pull %s:%s\n```\n\nImage digest: `%s`\n' "$IMAGE" "$TAG" "$DIGEST" > "$RUNNER_TEMP/notes.md"
+          printf '\n## Desktop downloads\n\n' >> "$RUNNER_TEMP/notes.md"
+          for file in installers/*.exe installers/*.dmg installers/*.zip; do
+            name=$(basename "$file")
+            printf -- '- [%s](https://github.com/%s/releases/download/%s/%s)\n' "$name" "$GITHUB_REPOSITORY" "$TAG" "$name" >> "$RUNNER_TEMP/notes.md"
+          done
+          printf '\nInstallers are currently unsigned. macOS builds are not notarized. See README for signing requirements.\n' >> "$RUNNER_TEMP/notes.md"
           if gh release view "$TAG" >/dev/null 2>&1; then
-            echo "Release $TAG already exists; image publishing completed."
+            gh release upload "$TAG" installers/* --clobber
             exit 0
           fi
-          printf 'Docker image (AMD64 and ARM64):\n\n```sh\ndocker pull %s:%s\n```\n\nImage digest: `%s`\n' "$IMAGE" "$TAG" "$DIGEST" > "$RUNNER_TEMP/notes.md"
           args=(--verify-tag --title "$TAG" --generate-notes --notes-file "$RUNNER_TEMP/notes.md")
           if [[ "$PRERELEASE" == true ]]; then args+=(--prerelease); fi
-          gh release create "$TAG" "${args[@]}"
+          gh release create "$TAG" installers/* "${args[@]}"

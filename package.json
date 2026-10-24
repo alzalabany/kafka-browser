@@ -7,7 +7,11 @@
     "build": "next build",
     "start": "next start",
     "lint": "eslint",
-    "test": "tsx --test src/lib/*.test.ts"
+    "test": "tsx --test src/lib/*.test.ts",
+    "desktop:prepare": "npm run build && node desktop/prepare.mjs",
+    "desktop:dev": "npm run desktop:prepare && electron desktop/main.cjs",
+    "desktop:pack": "npm run desktop:prepare && electron-builder --config electron-builder.yml --publish never",
+    "desktop:smoke": "electron desktop/main.cjs --smoke-test"
   },
   "dependencies": {
     "better-sqlite3": "^13.0.3",
@@ -24,6 +28,8 @@
     "@types/react": "^19",
     "@types/react-dom": "^19",
     "babel-plugin-react-compiler": "1.0.0",
+    "electron": "45.0.0",
+    "electron-builder": "26.18.0",
     "eslint": "^9",
     "eslint-config-next": "16.4.3",
     "tailwindcss": "^4",
