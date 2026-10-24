@@ -2,7 +2,8 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { readConnection } from './connection-form';
 import { readTimestamp, timestampOffsets, seekOnFirstJoin } from './stream-position';
-import { appendMessage, toJsonl } from './messages';
+import { appendMessage, toJsonl, messageId } from './messages';
+import { compileMessageRules } from './message-pipeline';
 import type { Credentials, Message } from './types';
 import type { Consumer } from 'kafkajs';
 
@@ -75,4 +76,24 @@ test('JSONL preserves nulls, strings, headers, and multiline values', () => {
   const exported = toJsonl(rows);
   assert.deepEqual(exported.trimEnd().split('\n').map(line => JSON.parse(line)),rows);
   assert.equal(toJsonl([]),'');
+});
+test('message identities include topic to avoid cross-topic offset collisions', () => {
+  const a = {...message(1),topic:'orders',id:messageId('orders',0,'1')};
+  const b = {...message(1),topic:'payments',id:messageId('payments',0,'1')};
+  assert.equal(appendMessage(appendMessage([],a),b).length,2);
+  assert.notEqual(a.id,b.id);
+});
+test('search retains matches before bounding the buffer, including transformed values', () => {
+  const search = compileMessageRules({transform:'return value.payload;',search:'needle'});
+  let buffer: Message[] = [];
+  const match = {...message(0),value:'{"payload":"needle"}'};
+  for (const m of [match,...Array.from({length:1100},(_,i) => ({...message(i+1),value:'{"payload":"unrelated"}'}))]) {
+    if (search([m]).visible.length) buffer=appendMessage(buffer,m);
+  }
+  assert.deepEqual(buffer,[match]);
+});
+test('search can match source topic names and JS can inspect message.topic', () => {
+  const m = {...message(1),topic:'orders.created'};
+  assert.equal(compileMessageRules({search:'orders.created'})([m]).visible.length,1);
+  assert.equal(compileMessageRules({js:'message.topic.startsWith("orders.")'})([m]).visible.length,1);
 });

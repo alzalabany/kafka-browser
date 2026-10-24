@@ -1,0 +1,14 @@
+# Allowlist: local databases, certificates, environment files and screenshots
+# never enter the build context, even when new files appear in the workspace.
+**
+!Dockerfile
+!package.json
+!package-lock.json
+!next.config.ts
+!tsconfig.json
+!next-env.d.ts
+!eslint.config.mjs
+!src/
+!src/**
+!public/
+!public/**

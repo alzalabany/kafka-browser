@@ -1,0 +1,14 @@
+services:
+  kafka-browser:
+    image: ${KAFKA_BROWSER_IMAGE:-alzalabany/kafka-browser:latest}
+    build: .
+    init: true
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:${KAFKA_BROWSER_PORT:-3000}:3000"
+    volumes:
+      - kafka-browser-data:/data
+    stop_grace_period: 30s
+
+volumes:
+  kafka-browser-data:

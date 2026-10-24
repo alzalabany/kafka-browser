@@ -5,7 +5,7 @@ import type { Credentials } from './types';
 
 const directory = process.env.KAFKA_BROWSER_DATA_DIR || path.join(process.cwd(), 'data');
 mkdirSync(directory, { recursive: true });
-const db = new Database(path.join(directory, 'kafka-browser.sqlite'));
+export const db = new Database(path.join(directory, 'kafka-browser.sqlite'));
 db.pragma('journal_mode = WAL');
 db.exec(`CREATE TABLE IF NOT EXISTS connections (id TEXT PRIMARY KEY, config TEXT NOT NULL);
 CREATE TABLE IF NOT EXISTS state (key TEXT PRIMARY KEY, value TEXT NOT NULL);`);

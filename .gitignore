@@ -24,6 +24,13 @@
 # misc
 .DS_Store
 *.pem
+*.key
+*.crt
+*.p12
+*.pfx
+*.jks
+/artifacts/
+user-access-certificate.crt
 
 # debug
 npm-debug.log*

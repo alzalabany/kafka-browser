@@ -1,5 +1,9 @@
 import type { Message } from './types';
 
+export function messageId(topic: string, partition: number, offset: string) {
+  return JSON.stringify([topic, partition, offset]);
+}
+
 export function appendMessage(messages: Message[], message: Message) {
   return [message, ...messages.filter(m => m.id !== message.id)].slice(0, 1000);
 }
