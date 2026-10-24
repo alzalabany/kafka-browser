@@ -48,7 +48,7 @@ npm install
 npm run dev
 ```
 
-Open http://localhost:3000. For a production build, run `npm run build` then `npm start`. Use a persistent Node server, not a static export or short-lived serverless function.
+Open http://localhost:3000. For production, use the Docker image above. A manual `npm run build` creates `.next/standalone`; copy `public` and `.next/static` into that folder (preserving their paths), then start with `node .next/standalone/server.js`. Use a persistent Node server, not a static export or short-lived serverless function.
 
 ## Connections
 
