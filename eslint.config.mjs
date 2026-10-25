@@ -12,6 +12,7 @@ const eslintConfig = defineConfig([
     "out/**",
     ".desktop/**",
     "artifacts/**",
+    ".heroku/**",
     "build/**",
     "next-env.d.ts",
   ]),
