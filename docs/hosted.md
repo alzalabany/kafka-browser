@@ -12,15 +12,17 @@ The app runs on DigitalOcean App Platform; Firebase Authentication handles Googl
 
 ## Firebase setup
 
-Project: `amana-kafka-browser`. Its default Firestore database is in `europe-west3`, Standard edition with the free tier. Google sign-in is enabled. The Firebase web configuration is public configuration; the service account and credential encryption key are secrets.
+Project: `kafka-browser`, owned by the company account `momen.zalabany@amanacapital.com`. Its default Firestore database is in `me-central2` (Dammam), Standard edition with the free tier, as required by the company's resource-location policy. Google sign-in uses the company support email. The Firebase web configuration is public configuration; runtime credentials and the encryption key are secrets.
 
 Deploy the deny-all browser rules with:
 
 ```sh
-firebase deploy --only firestore:rules --project amana-kafka-browser
+firebase deploy --only auth,firestore:rules --project kafka-browser --account momen.zalabany@amanacapital.com
 ```
 
-The Next.js server uses a dedicated runtime service account with `roles/datastore.user` and `roles/firebaseauth.admin` on this project. The latter permits creating and verifying Firebase session cookies. Do not use a project-owner key. Store its JSON in DigitalOcean's encrypted `FIREBASE_SERVICE_ACCOUNT_JSON` variable, available at runtime only.
+The Next.js server supports Google Application Default Credentials (ADC). Local hosted verification uses the authenticated company account via an ignored local ADC file. These user credentials must never be uploaded to DigitalOcean or committed.
+
+The company enforces `iam.disableServiceAccountKeyCreation`. Do not create service-account keys or weaken that policy. Production deployment is deferred and requires an approved keyless runtime identity (for example Workload Identity Federation supplying ADC), with `roles/datastore.user` and `roles/firebaseauth.admin` on this project. The DigitalOcean template deliberately leaves `GOOGLE_APPLICATION_CREDENTIALS` as a placeholder until approved keyless credential provisioning is available. `FIREBASE_SERVICE_ACCOUNT_JSON` remains supported for independently managed installations that allow keys.
 
 Credentials are encrypted with AES-256-GCM before Firestore storage, with authentication bound to their company and connection ID. Generate one key and keep a secure backup:
 
@@ -34,13 +36,13 @@ Set that value as runtime secret `KAFKA_CREDENTIALS_KEY`. Keep it stable across 
 
 Use [.do/app.yaml](../.do/app.yaml) as the App Platform specification. It selects a single 1 GiB instance in Frankfurt, a standalone Next.js server on port 8080, `/api/health` checks, and automatic deployments from `master`. Review the current instance price before creating the app. Firestore is durable; no local volume or managed SQL database is needed.
 
-Replace the four configuration placeholders: Firebase web API key, runtime service-account JSON, credential encryption key, and allowed Kafka brokers. Secrets must be **SECRET** variables with **RUN_TIME** scope; never commit a populated specification. `APP_ORIGIN` binds to DigitalOcean's `APP_URL`; if you later add a custom domain, set this to its exact HTTPS origin (without a trailing slash).
+Fill the public Firebase web API key, credential encryption key, and allowed Kafka brokers, and resolve the keyless runtime-identity prerequisite above before deploying. Secrets must be **SECRET** variables with **RUN_TIME** scope; never commit a populated specification. `APP_ORIGIN` binds to DigitalOcean's `APP_URL`; if you later add a custom domain, set this to its exact HTTPS origin (without a trailing slash).
 
 `KAFKA_ALLOWED_HOSTS` is an administrator-controlled, comma-separated allowlist. It applies to both bootstrap and metadata-advertised Kafka brokers. Exact hosts and patterns such as `*.your-cluster.example.com` are supported, optionally followed by `:port`. Use a narrow cluster-specific list. It protects the hosted service from arbitrary outbound network connections. Kafka itself must allow inbound connections from App Platform; private-only brokers require suitable network access. Broker TLS verification remains enabled.
 
 After DigitalOcean assigns the app URL, add its hostname under **Firebase Authentication → Settings → Authorized domains**. Keep only origins you use. The default Firebase `authDomain` is already provided by Firebase Hosting; no frontend hosting deployment is necessary.
 
-With an ignored `.env.hosted` configured, `node --env-file=.env.hosted scripts/render-app-spec.mjs` creates an ignored, populated `artifacts/app-hosted.yaml` for deployment. This file contains secrets. Use `doctl apps spec validate artifacts/app-hosted.yaml` to validate it and, after reviewing the plan and cost, `doctl apps create --spec artifacts/app-hosted.yaml`. Do not print the populated file into CI logs.
+After approved keyless provisioning is in place, set `HOSTED_GOOGLE_APPLICATION_CREDENTIALS` to the credential configuration's path **inside the deployed runtime**. With an ignored `.env.hosted` configured, `node --env-file=.env.hosted scripts/render-app-spec.mjs` creates an ignored, populated `artifacts/app-hosted.yaml` for deployment. The renderer deliberately does not copy the local user's ADC path into deployment configuration. This file contains secrets. Use `doctl apps spec validate artifacts/app-hosted.yaml` to validate it and, after reviewing the plan and cost, `doctl apps create --spec artifacts/app-hosted.yaml`. Do not print the populated file into CI logs.
 
 Sessions use HttpOnly, SameSite=Strict cookies, secure on HTTPS, and last five days. Login has a double-submit CSRF token and recent-Google-login check; mutations enforce `APP_ORIGIN`. Revoked or disabled accounts are checked at API entry. Each user can run two streams per app instance; streams close after 30 minutes or session expiry and must be restarted. Logging out closes that user's streams on the current instance. Keep one instance initially; multi-instance/global stream accounting and revocation of already-open streams are not distributed.
 

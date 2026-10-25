@@ -8,7 +8,7 @@ import type { Credentials } from './types';
 test('Firestore: company connections and opt-in settings share; personal data and other companies stay isolated', {skip:!process.env.FIRESTORE_EMULATOR_HOST && process.env.KAFKA_TEST_FIRESTORE !== '1'},async t => {
   process.env.KAFKA_BROWSER_MODE='hosted';
   if (process.env.FIRESTORE_EMULATOR_HOST) process.env.FIREBASE_PROJECT_ID='demo-kafka-browser';
-  else assert.equal(process.env.FIREBASE_PROJECT_ID,'amana-kafka-browser','Live verification is restricted to the new Kafka Browser project');
+  else assert.equal(process.env.FIREBASE_PROJECT_ID,'kafka-browser','Live verification is restricted to the new Kafka Browser project');
   process.env.KAFKA_CREDENTIALS_KEY=randomBytes(32).toString('base64');
   const run=randomUUID();
   const otherDomain=`other-${run}.test`;

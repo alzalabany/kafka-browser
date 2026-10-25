@@ -1,3 +1,5 @@
+# Deployment is deferred. Company policy blocks service-account keys.
+# Provision approved keyless ADC and its refreshable subject token before use.
 name: kafka-browser
 region: fra
 services:
@@ -29,18 +31,17 @@ services:
         value: ${APP_URL}
         scope: RUN_TIME
       - key: FIREBASE_PROJECT_ID
-        value: amana-kafka-browser
+        value: kafka-browser
       - key: FIREBASE_AUTH_DOMAIN
-        value: amana-kafka-browser.firebaseapp.com
+        value: kafka-browser.firebaseapp.com
       - key: FIREBASE_WEB_APP_ID
-        value: 1:208259125900:web:b68beac76cbbcd36c0a1a9
+        value: 1:724882424937:web:d1626a5365eeb9c6f44ef8
       - key: FIREBASE_WEB_API_KEY
         value: REPLACE_WITH_FIREBASE_WEB_API_KEY
         scope: RUN_TIME
-      - key: FIREBASE_SERVICE_ACCOUNT_JSON
-        type: SECRET
+      - key: GOOGLE_APPLICATION_CREDENTIALS
         scope: RUN_TIME
-        value: REPLACE_WITH_SERVICE_ACCOUNT_JSON
+        value: REPLACE_WITH_APPROVED_ADC_FILE_PATH
       - key: KAFKA_CREDENTIALS_KEY
         type: SECRET
         scope: RUN_TIME
