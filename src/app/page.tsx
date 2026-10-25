@@ -5,14 +5,14 @@ import Link from 'next/link';
 import RulesSidebar from './rules-sidebar';
 import TableSettings from './table-settings';
 import {DEFAULT_TABLE,fieldValue,cellText,tableTime,type TableView} from '@/lib/table-view';
-import { Activity, ArrowRight, Check, ChevronRight, Circle, Database, FileJson, Filter, GitCompareArrows, Hash, Plus, Radio, RefreshCw, Search, Settings2, Square, Star, Trash2, X } from 'lucide-react';
+import { Activity, ArrowRight, Check, Database, FileJson, Filter, GitCompareArrows, Hash, Plus, Radio, RefreshCw, Search, Settings2, Square, Star, Trash2, X } from 'lucide-react';
 import type { Connection, Message } from '@/lib/types';
 import { diff, parse } from '@/lib/diff';
 import { appendMessage, toJsonl } from '@/lib/messages';
 import { compileMessageRules, processMessages } from '@/lib/message-pipeline';
 import type { Preset } from '@/lib/presets';
 import { selectedRules, ruleScope, type TopicRules, type RuleSelection } from '@/lib/rule-selection';
-import { useHostedWorkspace } from './auth-gate';
+import { SidebarAccount, useHostedWorkspace } from './auth-gate';
 
 type Topic = { name: string; partitions: number };
 type ViewState = { favorites?: string[]; topic?: string; allTopics?: boolean; topicRules?:TopicRules; tableViews?:Record<string,TableView> };
@@ -155,10 +155,9 @@ export default function Home() {
       <div className="topic-tabs"><button className={!onlyFavorites ? 'active' : ''} onClick={() => setOnlyFavorites(false)}>All topics</button><button className={onlyFavorites ? 'active' : ''} onClick={() => setOnlyFavorites(true)}><Star size={12}/> Favorites</button></div>
       <button className={`all-topic-search ${state.allTopics ? 'active' : ''}`} disabled={!active || !loaded} onClick={chooseAllTopics}><Search size={15}/> Search all topics</button><div className="topic-list">{topics.filter(t => t.name.toLowerCase().includes(topicSearch.toLowerCase()) && (!onlyFavorites || state.favorites?.includes(t.name))).map(t => <div key={t.name} className={`topic-row ${!state.allTopics && state.topic === t.name ? 'selected' : ''}`}><button className="topic-name" onClick={() => chooseTopic(t.name)}><Hash size={15}/><span>{t.name}</span></button><button className={`icon favorite ${state.favorites?.includes(t.name) ? 'on' : ''}`} title="Toggle favorite" onClick={() => setState(s => ({...s,favorites:s.favorites?.includes(t.name) ? s.favorites.filter(n => n !== t.name) : [...s.favorites || [],t.name]}))}><Star size={14}/></button></div>)}{!topics.length && <p className="side-empty">{loading ? 'Connecting to your cluster…' : active ? 'No topics loaded.' : 'Add a connection to explore your topics.'}</p>}</div>
       <button className="new-connection" onClick={() => openConnection()}><Plus size={16}/> Add connection</button>
-      <div className="sidebar-footer"><span className="tiny-dot"/> SQLite persistence <span>v0.1</span></div>
+      {hosted?<SidebarAccount/>:<div className="sidebar-footer"><span className="tiny-dot"/> SQLite persistence <span>v0.1</span></div>}
     </aside>
     <main>
-      <header className="topbar"><div>Workspace <ChevronRight size={14}/><span>{current?.name || 'Overview'}</span></div><span className="local-badge"><Circle size={7} fill="currentColor"/> Local development</span></header>
       <section className="workspace">
         <div className="page-heading"><div><div className="eyebrow">KAFKA EXPLORER</div><h1>{state.allTopics ? 'Search all topics' : state.topic || 'Your events, in focus.'}</h1><p>{state.allTopics ? 'Find matching messages across your cluster.' : state.topic ? 'Inspect your stream. Find the signal.' : 'Connect a cluster and see what’s flowing through your topics.'}</p></div><span className={`status ${status === 'Live' ? 'live' : ''}`}><span className="tiny-dot"/>{status}</span></div>
         {error && <div className="error" role="alert">{error}<button className="icon" onClick={() => setError('')}><X size={15}/></button></div>}

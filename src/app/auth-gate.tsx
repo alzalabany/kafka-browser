@@ -6,7 +6,13 @@ import { Activity, LogOut } from 'lucide-react';
 
 type Session = {mode:'local'|'hosted';user:{uid:string;email:string}|null;config?:FirebaseOptions;csrfToken?:string;company?:string};
 const HostedContext=createContext(false);
+const AccountContext=createContext<{email:string;busy:boolean;error:string;logout:()=>void}|null>(null);
 export const useHostedWorkspace=()=>useContext(HostedContext);
+export function SidebarAccount() {
+  const account=useContext(AccountContext);
+  if (!account) return null;
+  return <div className="sidebar-account"><span className="account-avatar" aria-hidden="true">{account.email[0].toUpperCase()}</span><div className="account-identity"><span title={account.email}>{account.email}</span><small>Company workspace</small></div><button className="icon" title="Sign out" aria-label="Sign out" disabled={account.busy} onClick={account.logout}><LogOut size={15}/></button>{account.error&&<span className="account-error" role="alert">{account.error}</span>}</div>;
+}
 export default function AuthGate({children}:{children:React.ReactNode}) {
   const [session,setSession]=useState<Session|null>(null),[error,setError]=useState(''),[busy,setBusy]=useState(false);
   const load=async () => {
@@ -45,6 +51,6 @@ export default function AuthGate({children}:{children:React.ReactNode}) {
     } catch(error) {setError((error as Error).message);setBusy(false);}
   };
   if (session?.mode === 'local') return children;
-  if (session?.user) return <HostedContext.Provider value={true}><div className="hosted-shell"><div className="account-bar"><span>{session.user.email} · Company connections</span>{error&&<span role="alert">{error}</span>}<button className="secondary" disabled={busy} onClick={()=>void logout()}><LogOut size={13}/> Sign out</button></div>{children}</div></HostedContext.Provider>;
+  if (session?.user) return <HostedContext.Provider value={true}><AccountContext.Provider value={{email:session.user.email,busy,error,logout:()=>void logout()}}>{children}</AccountContext.Provider></HostedContext.Provider>;
   return <main className="login-shell"><section className="login-card"><span className="brand-icon"><Activity size={28}/></span><h1>Kafka Browser</h1><p>Sign in with your {session?.company || 'company'} Google account to open your workspace.</p>{error&&<p className="error" role="alert">{error}</p>}<button className="primary" disabled={!session||busy} onClick={()=>void login()}>{busy?'Signing in…':session?'Continue with Google':'Loading…'}</button><p className="editor-help">Connections are shared with your company. Filters, transformers, and view settings can be personal or shared.</p></section></main>;
 }
