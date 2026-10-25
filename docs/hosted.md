@@ -58,10 +58,12 @@ PORT=3100 HOSTNAME=127.0.0.1 node --env-file=.env.hosted .next/standalone/server
 
 Add localhost to Firebase's authorized domains for local Google login. Local HTTP is allowed only for loopback origins; public production origins require HTTPS.
 
-CI tests company/personal persistence against the Firestore emulator with Java 21. To run that verification locally with Firebase CLI and Java 21 installed:
+CI tests Google session creation/restoration/logout and company/personal persistence against the Authentication and Firestore emulators with Java 21. To run that verification locally with Firebase CLI and Java 21 installed:
 
 ```sh
-firebase emulators:exec --only firestore --project demo-kafka-browser "npx tsx --test src/lib/hosted-store.test.ts"
+firebase emulators:exec --only auth,firestore --project demo-kafka-browser "npx tsx --test src/lib/hosted-store.test.ts src/lib/hosted-login.test.ts"
 ```
 
 Normal `npm test` runs authentication, CSRF, domain matching, credential encryption, stream limits, and existing message tests. The storage integration test is skipped outside an emulator unless explicitly enabled for the new Firebase project.
+
+The Google session test can also run without Java: `firebase emulators:exec --only auth --project demo-kafka-browser "npx tsx --test src/lib/hosted-login.test.ts"`. Emulated identities are accepted only when the Admin SDK is explicitly connected to the Auth emulator. Never set `FIREBASE_AUTH_EMULATOR_HOST` on the hosted deployment.
