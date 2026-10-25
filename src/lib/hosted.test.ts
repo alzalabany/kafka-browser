@@ -41,6 +41,8 @@ test('broker policy restricts bootstrap and advertised hosts with domain boundar
   assert.doesNotThrow(()=>validateBroker('broker.example.com',9093));
   assert.doesNotThrow(()=>validateBroker('node-1.cluster.example.com',25062));
   for (const [host,port] of [['broker.example.com',80],['127.0.0.1',9093],['cluster.example.com.evil.test',9093],['evilcluster.example.com',9093]] as const) assert.throws(()=>validateBroker(host,port));
+  process.env.KAFKA_ALLOWED_HOSTS='*';validateBroker('any-broker.example.com',25062);validateBroker('10.0.0.1',9093);
+  process.env.KAFKA_ALLOWED_HOSTS='*:9093';validateBroker('any-broker.example.com',9093);assert.throws(()=>validateBroker('any-broker.example.com',9092));
   process.env.KAFKA_ALLOWED_HOSTS='';assert.throws(()=>validateBroker('broker.example.com',9093));
 });
 test('stream limits are isolated per user and logout cancels and releases active streams', () => {

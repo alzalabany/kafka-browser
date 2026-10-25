@@ -7,6 +7,7 @@ export function validateBroker(host:string,port:number) {
   const accepted = entries.some(entry => {
     const [pattern,allowedPort] = entry.split(':');
     if (allowedPort && Number(allowedPort) !== port) return false;
+    if (pattern === '*') return true;
     return pattern.startsWith('*.') ? normalized.endsWith(pattern.slice(1)) && normalized !== pattern.slice(2) : normalized === pattern;
   });
   if (!accepted) throw new Error('This broker is not in the administrator’s KAFKA_ALLOWED_HOSTS allowlist');
