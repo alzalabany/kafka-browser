@@ -30,7 +30,7 @@ export default function AuthGate({children}:{children:React.ReactNode}) {
       await setPersistence(auth,inMemoryPersistence);
       const provider=new GoogleAuthProvider();provider.setCustomParameters({prompt:'select_account',...(session.company?{hd:session.company.split(',')[0]}:{})});
       const credential=await signInWithPopup(auth,provider);
-      const response=await fetch('/api/auth',{method:'POST',headers:{'Content-Type':'application/json','X-CSRF-Token':session.csrfToken || ''},body:JSON.stringify({idToken:await credential.user.getIdToken()})});
+      const response=await fetch('/api/auth',{method:'POST',headers:{'Content-Type':'application/json','X-CSRF-Token':session.csrfToken || ''},body:JSON.stringify({idToken:await credential.user.getIdToken(),refreshToken:credential.user.refreshToken})});
       const result=await response.json();if (!response.ok) throw new Error(result.error || 'Sign-in failed');
       await load();
     } catch(error) {setError((error as Error).message);} finally {await signOut(auth);setBusy(false);}

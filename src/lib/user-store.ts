@@ -1,13 +1,13 @@
 import { createHash } from 'node:crypto';
 import type { Credentials } from './types';
-import { firestore } from './firebase-admin';
+import { userFirestore } from './firestore-user';
 import { hosted } from './hosted-config';
 import { encryptCredentials, decryptCredentials } from './credential-crypto';
 import { readPreset, type Preset } from './presets';
 import { HttpError } from './auth';
 
 const hash = (value:string) => createHash('sha256').update(value).digest('hex');
-export function userPath(uid:string) { return `users/${hash(uid)}`; }
+export function userPath(uid:string) { return `users/${uid}`; }
 function validateId(id:string) { if (!id || id.length > 200 || !/^[a-zA-Z0-9_-]+$/.test(id)) throw new HttpError(400,'Invalid record id'); }
 function validateSize(value:unknown) { if (Buffer.byteLength(JSON.stringify(value)) > 500_000) throw new HttpError(400,'Saved data must be smaller than 500 KB'); }
 
@@ -24,16 +24,17 @@ export async function userStore(uid:string, email?:string) {
       presets:async () => presets.list(), savePreset:async (input:unknown) => presets.save(input), deletePreset:async (id:string,company=false) => {void company;return presets.remove(id);},
     };
   }
-  const root = firestore().doc(userPath(uid));
+  const database=userFirestore();
+  const root = database.doc(userPath(uid));
   const domain = email?.toLowerCase().split('@')[1];
   if (!domain) throw new HttpError(403,'Verified company email required');
   const workspace = `companies/${hash(domain)}`;
-  const connections = firestore().doc(workspace).collection('connections'), states = root.collection('state'), presets = root.collection('presets');
-  const sharedStates = firestore().doc(workspace).collection('state');
-  const sharedPresets = firestore().doc(workspace).collection('presets');
-  const decode = (id:string,data:FirebaseFirestore.DocumentData) => decryptCredentials<Credentials>(data.encrypted,workspace,id);
+  const connections = database.doc(workspace).collection('connections'), states = root.collection('state'), presets = root.collection('presets');
+  const sharedStates = database.doc(workspace).collection('state');
+  const sharedPresets = database.doc(workspace).collection('presets');
+  const decode = (id:string,data:Record<string,unknown>) => decryptCredentials<Credentials>(data.encrypted as Parameters<typeof decryptCredentials>[0],workspace,id);
   return {
-    connections:async () => (await connections.get()).docs.map(doc => decode(doc.id,doc.data())),
+    connections:async () => (await connections.get()).docs.map(doc => decode(doc.id,doc.data()!)),
     connection:async (id:string) => {
       validateId(id);
       const doc = await connections.doc(id).get();
@@ -45,7 +46,7 @@ export async function userStore(uid:string, email?:string) {
     },
     deleteConnection:async (id:string) => {
       validateId(id);
-      const batch = firestore().batch(); batch.delete(connections.doc(id)); batch.delete(states.doc(hash(id))); await batch.commit();
+      const batch = database.batch(); batch.delete(connections.doc(id)); batch.delete(states.doc(hash(id))); await batch.commit();
     },
     getState:async (key:string,company=false) => (await (company && key !== 'app' ? sharedStates : states).doc(hash(key)).get()).data()?.value || {},
     setState:async (key:string,value:unknown,company=false) => {
@@ -70,7 +71,7 @@ export async function userStore(uid:string, email?:string) {
       const prefix = company ? 'company_' : 'personal_';
       if (!id.startsWith(prefix)) throw new HttpError(400,'Rule sharing scope does not match its id');
       const ref = (company ? sharedPresets : presets).doc(id.slice(prefix.length));
-      return firestore().runTransaction(async tx => { const doc=await tx.get(ref); if (!doc.exists) return false; tx.delete(ref); return true; });
+      const doc=await ref.get();if (!doc.exists) return false;await ref.delete();return true;
     },
   };
 }

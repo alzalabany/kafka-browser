@@ -1,6 +1,7 @@
 export const hosted = () => process.env.KAFKA_BROWSER_MODE === 'hosted';
 
 export function requireHostedConfig() {
+  if (process.env.NODE_ENV==='production' && (process.env.FIREBASE_AUTH_EMULATOR_HOST || process.env.FIRESTORE_EMULATOR_HOST)) throw new Error('Firebase emulators cannot be used in hosted production');
   for (const key of ['FIREBASE_PROJECT_ID', 'FIREBASE_WEB_API_KEY', 'FIREBASE_AUTH_DOMAIN', 'FIREBASE_WEB_APP_ID', 'KAFKA_CREDENTIALS_KEY', 'APP_ORIGIN', 'KAFKA_ALLOWED_HOSTS', 'ALLOWED_EMAIL_DOMAINS']) {
     if (!process.env[key]?.trim()) throw new Error(`Hosted configuration missing: ${key}`);
   }

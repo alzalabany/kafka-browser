@@ -1,12 +1,13 @@
 import { randomBytes, timingSafeEqual } from 'node:crypto';
 import { NextResponse } from 'next/server';
-import { firebaseAuth } from '@/lib/firebase-admin';
+import { verifyUserToken, refreshUserToken } from '@/lib/firebase-user';
+import { encodeSession } from '@/lib/user-session';
 import { hosted, requireHostedConfig, allowedIdentity } from '@/lib/hosted-config';
-import { identity, checkOrigin, errorResponse, HttpError, requestCookie, SESSION_COOKIE, CSRF_COOKIE, SESSION_SECONDS } from '@/lib/auth';
+import { identity, checkOrigin, errorResponse, HttpError, requestCookie, SESSION_COOKIE, CSRF_COOKIE, SESSION_SECONDS, sessionOptions } from '@/lib/auth';
 import { stopUserStreams } from '@/lib/stream-limits';
 export const runtime='nodejs';
 export const dynamic='force-dynamic';
-const options = () => ({httpOnly:true,secure:process.env.APP_ORIGIN?.startsWith('https:') || false,sameSite:'strict' as const,path:'/'});
+const options = sessionOptions;
 function csrf(request:Request) {
   checkOrigin(request);
   const cookie = requestCookie(request,CSRF_COOKIE) || '';
@@ -17,8 +18,8 @@ export async function GET(request:Request) {
   if (!hosted()) return NextResponse.json({mode:'local',user:null});
   try {
     requireHostedConfig();
-    let user = null;
-    try { const current=await identity(request); user={uid:current.uid,email:current.email}; }
+    let user = null, current;
+    try { current=await identity(request); user={uid:current.uid,email:current.email}; }
     catch (error) { if (!(error instanceof HttpError && [401,403].includes(error.status))) throw error; }
     const csrfToken = randomBytes(32).toString('hex');
     const response = NextResponse.json({mode:'hosted',user,csrfToken,
@@ -26,6 +27,7 @@ export async function GET(request:Request) {
       company:process.env.ALLOWED_EMAIL_DOMAINS,
     },{headers:{'Cache-Control':'no-store','Vary':'Cookie'}});
     response.cookies.set(CSRF_COOKIE,csrfToken,{...options(),maxAge:SESSION_SECONDS});
+    if (current?.sessionCookie) response.cookies.set(SESSION_COOKIE,current.sessionCookie,{...options(),maxAge:Math.max(0,Math.floor((current.sessionExpiresAt!-Date.now())/1000))});
     return response;
   } catch (error) { return errorResponse(error); }
 }
@@ -33,14 +35,19 @@ export async function POST(request:Request) {
   try {
     if (!hosted()) throw new HttpError(400,'Google sign-in is not enabled in local mode');
     requireHostedConfig(); csrf(request);
-    const {idToken}=await request.json();
-    if (typeof idToken !== 'string' || idToken.length > 20_000) throw new HttpError(400,'Invalid sign-in token');
-    let claims;
-    try { claims=await firebaseAuth().verifyIdToken(idToken,true); }
+    const {idToken,refreshToken}=await request.json();
+    if (typeof idToken !== 'string' || idToken.length > 20_000 || typeof refreshToken !== 'string' || refreshToken.length>20_000 || !refreshToken) throw new HttpError(400,'Invalid sign-in token');
+    let claims, tokens;
+    try {
+      claims=await verifyUserToken(idToken);
+      tokens=await refreshUserToken(refreshToken);
+      const refreshed=await verifyUserToken(tokens.idToken);
+      if (refreshed.uid!==claims.uid) throw new Error('Session identity mismatch');
+    }
     catch { throw new HttpError(401,'Google sign-in could not be verified'); }
     if (!allowedIdentity(claims)) throw new HttpError(403,'Sign in with your verified company Google account');
     if (Date.now()/1000 - claims.auth_time > 300) throw new HttpError(401,'Please sign in with Google again');
-    const cookie = await firebaseAuth().createSessionCookie(idToken,{expiresIn:SESSION_SECONDS*1000});
+    const cookie = encodeSession({...tokens,expiresAt:Date.now()+SESSION_SECONDS*1000});
     const response=NextResponse.json({ok:true});
     response.cookies.set(SESSION_COOKIE,cookie,{...options(),maxAge:SESSION_SECONDS});
     return response;

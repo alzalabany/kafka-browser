@@ -1,71 +1,81 @@
 # Hosted company workspace
 
-The app runs on DigitalOcean App Platform; Firebase Authentication handles Google sign-in and Firestore stores application data. Developers only need a browser. App Platform builds directly from GitHub using Node.js 24; Docker is not needed for deployment.
+Run Kafka Browser on DigitalOcean App Platform with Firebase Google sign-in and Firestore persistence. The server authenticates with the signed-in user's Firebase tokens. **No Google service-account key, ADC file, or organization-policy exception is required.**
 
-## Access and sharing
+## How authentication works
 
-- Every data and Kafka API verifies a Firebase session cookie. Only verified Google accounts with an exact domain in `ALLOWED_EMAIL_DOMAINS` are admitted (initially `amanacapital.com`). Google's account-picker domain hint is convenience only; the server enforces access.
-- Connections belong to the company domain. Every company member can use, edit, and delete them. Passwords and certificate contents are never included in connection-list responses.
-- Filters and transformers default to Personal. Choose Company in their editor to save a company copy. Company rules are visible, editable, and deletable by all company members. Moving between scopes creates a separate copy; the original remains. Only run shared JavaScript you trust: transformers execute in the signed-in browser.
-- The sidebar's **View settings sharing** selector switches between Personal and Company favorites, active rules, and table layouts. Company views can select only company rules. The active connection is always personal. Settings use last-write-wins; refresh to see edits made by another member.
-- Existing local SQLite data is not automatically uploaded. Re-add the connections you want to share. Local mode remains available with `KAFKA_BROWSER_MODE=local` (the default).
+1. The browser signs in using Firebase Google login and sends the ID token and refresh token to the same-origin server over HTTPS.
+2. The server verifies the ID token signature with Google's public certificates and checks the current user with Firebase's user-authenticated account API. It requires a verified Google identity from an allowed email domain.
+3. Both tokens are encrypted in an HttpOnly, Secure, SameSite=Strict cookie. The browser Firebase SDK uses in-memory persistence and signs out after handing the session to the server.
+4. The server uses the user's ID token for Firestore REST requests. Firestore Security Rules enforce company membership and personal ownership independently of the server.
+5. Expired ID tokens refresh on the next API request. Refresh does not extend the five-day session limit. Current account state and revocation time are checked on each authenticated request. Logging out clears the cookie and stops that user's streams on the current instance.
+
+Kafka passwords and certificates stay encrypted in Firestore using AES-256-GCM. Only the server has the encryption key and decrypts credentials to connect to brokers. Company members can read the encrypted connection documents through Firestore directly, as permitted by the same company rules; plaintext credentials are never returned by connection-list APIs.
+
+Direct Firestore access follows Firebase ID-token expiry (normally one hour); Security Rules do not query Firebase account revocation state. The application server checks current account state on every API request, while an already-issued token may continue to authorize direct Firestore requests until it expires.
 
 ## Firebase setup
 
-Project: `kafka-browser`, owned by the company account `momen.zalabany@amanacapital.com`. Its default Firestore database is in `me-central2` (Dammam), Standard edition with the free tier, as required by the company's resource-location policy. Google sign-in uses the company support email. The Firebase web configuration is public configuration; runtime credentials and the encryption key are secrets.
+Company project: `kafka-browser`. Its free-tier Standard Firestore database is in `me-central2`, matching company location policy.
 
-Deploy the deny-all browser rules with:
+- Enable Google in **Authentication → Sign-in method**.
+- Add `kafka.amana-dev.com` to **Authentication → Settings → Authorized domains**.
+- Keep `FIREBASE_AUTH_DOMAIN=kafka-browser.firebaseapp.com`; the Google popup callback uses Firebase's hosted auth handler.
+- Deploy the checked-in Security Rules using an operator's company login:
 
 ```sh
-firebase deploy --only auth,firestore:rules --project kafka-browser --account momen.zalabany@amanacapital.com
+firebase deploy --only firestore:rules --project kafka-browser --account momen.zalabany@amanacapital.com
 ```
 
-The Next.js server supports Google Application Default Credentials (ADC). Local hosted verification uses the authenticated company account via an ignored local ADC file. These user credentials must never be uploaded to DigitalOcean or committed.
+The rules admit verified Google accounts from `amanacapital.com`. Company connection IDs retain the existing SHA-256 domain namespace so existing encrypted connections need no migration. Personal documents use `users/{Firebase UID}`. When allowing another domain, update **both** the server's `ALLOWED_EMAIL_DOMAINS` and the explicit domain/company-ID mapping in `firestore.rules`; expanding only the environment variable will not grant Firestore access.
 
-The company enforces `iam.disableServiceAccountKeyCreation`. Do not create service-account keys or weaken that policy. Production deployment is deferred and requires an approved keyless runtime identity (for example Workload Identity Federation supplying ADC), with `roles/datastore.user` and `roles/firebaseauth.admin` on this project. The DigitalOcean template deliberately leaves `GOOGLE_APPLICATION_CREDENTIALS` as a placeholder until approved keyless credential provisioning is available. `FIREBASE_SERVICE_ACCOUNT_JSON` remains supported for independently managed installations that allow keys.
+## DigitalOcean configuration
 
-Credentials are encrypted with AES-256-GCM before Firestore storage, with authentication bound to their company and connection ID. Generate one key and keep a secure backup:
+The deployed custom domain is `https://kafka.amana-dev.com`. Use [.do/app.yaml](../.do/app.yaml) as a template for a new app; preserve existing app sizing and network settings when updating an existing deployment.
+
+Set these environment variables:
+
+| Variable | Value |
+| --- | --- |
+| `KAFKA_BROWSER_MODE` | `hosted` |
+| `APP_ORIGIN` | `https://kafka.amana-dev.com` |
+| `FIREBASE_PROJECT_ID` | `kafka-browser` |
+| `FIREBASE_AUTH_DOMAIN` | `kafka-browser.firebaseapp.com` |
+| `FIREBASE_WEB_APP_ID` | Firebase web app ID |
+| `FIREBASE_WEB_API_KEY` | Firebase public web API key |
+| `ALLOWED_EMAIL_DOMAINS` | `amanacapital.com` |
+| `KAFKA_ALLOWED_HOSTS` | Allowed broker hosts, or `*` to allow all |
+| `KAFKA_CREDENTIALS_KEY` | Stable base64-encoded 32-byte encryption key; **encrypted, runtime only** |
+
+Use the existing encryption key when upgrading: replacing it makes stored connections unreadable and invalidates sessions. For a new installation, generate one with:
 
 ```sh
 node -e "console.log(require('crypto').randomBytes(32).toString('base64'))"
 ```
 
-Set that value as runtime secret `KAFKA_CREDENTIALS_KEY`. Keep it stable across deployments. Losing or replacing it makes existing saved connections unreadable; rotation requires re-encrypting them first. Certificate bundles must fit within the app's 500 KB saved-record limit.
+Never commit the key or a populated app specification. Do not deploy `FIREBASE_SERVICE_ACCOUNT_JSON`, `GOOGLE_APPLICATION_CREDENTIALS`, local ADC, or emulator variables. The runtime explicitly refuses privileged Google API credentials in its token verifier and rejects emulator configuration in production.
 
-## DigitalOcean deployment
+For a fresh app, `node --env-file=.env.hosted scripts/render-app-spec.mjs` renders an ignored specification containing the runtime secret. Review cost before creating paid infrastructure. A persistent Node server is required for Kafka streaming; static hosting and short-lived functions are unsuitable. Keep one app instance initially.
 
-Use [.do/app.yaml](../.do/app.yaml) as the App Platform specification. It selects a single 1 GiB instance in Frankfurt, a standalone Next.js server on port 8080, `/api/health` checks, and automatic deployments from `master`. Review the current instance price before creating the app. Firestore is durable; no local volume or managed SQL database is needed.
+## Sharing and access
 
-Fill the public Firebase web API key, credential encryption key, and allowed Kafka brokers, and resolve the keyless runtime-identity prerequisite above before deploying. Secrets must be **SECRET** variables with **RUN_TIME** scope; never commit a populated specification. `APP_ORIGIN` binds to DigitalOcean's `APP_URL`; if you later add a custom domain, set this to its exact HTTPS origin (without a trailing slash).
+- Company members can use, edit, and delete company connections and shared rules.
+- Rules default to Personal. Choose Company in the editor to create a shared copy; changing scope preserves the original.
+- **View settings sharing** switches personal/company favorites, selected rules, and table layouts. Company layouts can select only company rules. The active connection remains personal.
+- Settings use last-write-wins; refresh to see another member's changes.
+- JavaScript rules run in the browser. Only use code you trust.
+- Streams are limited to two per user per instance, and end after 30 minutes or the current ID token's expiry. Restart to continue. Logout cancellation is per instance.
 
-`KAFKA_ALLOWED_HOSTS` is an administrator-controlled, comma-separated allowlist. It applies to both bootstrap and metadata-advertised Kafka brokers. Exact hosts and patterns such as `*.your-cluster.example.com` are supported, optionally followed by `:port`. Set `KAFKA_ALLOWED_HOSTS=*` to allow all broker hosts and ports, or `*:9093` to allow all hosts on a specific port. Kafka itself must allow inbound connections from App Platform; private-only brokers require suitable network access. Broker TLS verification remains enabled.
+## Upgrading from Admin SDK storage
 
-After DigitalOcean assigns the app URL, add its hostname under **Firebase Authentication → Settings → Authorized domains**. Keep only origins you use. The default Firebase `authDomain` is already provided by Firebase Hosting; no frontend hosting deployment is necessary.
+Existing Firebase Admin session cookies require sign-in again. Company connections and shared settings keep their existing paths and encryption key.
 
-After approved keyless provisioning is in place, set `HOSTED_GOOGLE_APPLICATION_CREDENTIALS` to the credential configuration's path **inside the deployed runtime**. With an ignored `.env.hosted` configured, `node --env-file=.env.hosted scripts/render-app-spec.mjs` creates an ignored, populated `artifacts/app-hosted.yaml` for deployment. The renderer deliberately does not copy the local user's ADC path into deployment configuration. This file contains secrets. Use `doctl apps spec validate artifacts/app-hosted.yaml` to validate it and, after reviewing the plan and cost, `doctl apps create --spec artifacts/app-hosted.yaml`. Do not print the populated file into CI logs.
-
-Sessions use HttpOnly, SameSite=Strict cookies, secure on HTTPS, and last five days. Login has a double-submit CSRF token and recent-Google-login check; mutations enforce `APP_ORIGIN`. Revoked or disabled accounts are checked at API entry. Each user can run two streams per app instance; streams close after 30 minutes or session expiry and must be restarted. Logging out closes that user's streams on the current instance. Keep one instance initially; multi-instance/global stream accounting and revocation of already-open streams are not distributed.
-
-`/api/health` validates runtime configuration without exposing secrets or charging a Firestore read on every health check. It does not prove Firebase credentials or broker reachability; verify sign-in and a connection after deployment.
-
-## Local hosted-mode verification
-
-Copy `.env.example` to an ignored environment file, fill it with your project's values, and set `APP_ORIGIN=http://localhost:3100`. Then:
+Personal paths changed from hashed UIDs to Firebase UIDs so Security Rules can enforce ownership. Run the one-time operator migration with local company ADC before deploying the new rules/app:
 
 ```sh
-npm ci
-npm run build:hosted
-PORT=3100 HOSTNAME=127.0.0.1 node --env-file=.env.hosted .next/standalone/server.js
+node --env-file=.env.hosted --import tsx scripts/migrate-user-paths.ts
 ```
 
-Add localhost to Firebase's authorized domains for local Google login. Local HTTP is allowed only for loopback origins; public production origins require HTTPS.
+The migration copies personal settings and presets for existing Firebase users, skips already-present destination documents, and retains old records as backup. Local operator credentials are used only for this administrative migration, never by the deployed application. Local SQLite settings are not automatically uploaded.
 
-CI tests Google session creation/restoration/logout and company/personal persistence against the Authentication and Firestore emulators with Java 21. To run that verification locally with Firebase CLI and Java 21 installed:
-
-```sh
-firebase emulators:exec --only auth,firestore --project demo-kafka-browser "npx tsx --test src/lib/hosted-store.test.ts src/lib/hosted-login.test.ts"
-```
-
-Normal `npm test` runs authentication, CSRF, domain matching, credential encryption, stream limits, and existing message tests. The storage integration test is skipped outside an emulator unless explicitly enabled for the new Firebase project.
-
-The Google session test can also run without Java: `firebase emulators:exec --only auth --project demo-kafka-browser "npx tsx --test src/lib/hosted-login.test.ts"`. Emulated identities are accepted only when the Admin SDK is explicitly connected to the Auth emulator. Never set `FIREBASE_AUTH_EMULATOR_HOST` on the hosted deployment.
+After deployment, verify `/api/health`, Google login, company topic access, personal isolation, refresh, and logout before disabling DigitalOcean maintenance mode. The standalone build copies its static assets using `npm run build:hosted`.

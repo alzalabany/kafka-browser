@@ -1,5 +1,4 @@
-# Deployment is deferred. Company policy blocks service-account keys.
-# Provision approved keyless ADC and its refreshable subject token before use.
+# Keyless Firebase user-token authentication. No Google service-account key needed.
 name: kafka-browser
 region: fra
 services:
@@ -39,9 +38,6 @@ services:
       - key: FIREBASE_WEB_API_KEY
         value: REPLACE_WITH_FIREBASE_WEB_API_KEY
         scope: RUN_TIME
-      - key: GOOGLE_APPLICATION_CREDENTIALS
-        scope: RUN_TIME
-        value: REPLACE_WITH_APPROVED_ADC_FILE_PATH
       - key: KAFKA_CREDENTIALS_KEY
         type: SECRET
         scope: RUN_TIME
