@@ -9,7 +9,8 @@ export function kafka(c: Credentials) {
     socketFactory: ({host,port,ssl,onConnect}) => {
       // Applies to bootstrap AND metadata-advertised brokers, not just saved input.
       validateBroker(host,port);
-      return ssl ? tls.connect({host,port,...ssl,servername:host},onConnect) : net.connect({host,port},onConnect);
+      const servername = net.isIP(host) ? (net.isIP(c.host) ? undefined : c.host) : host;
+      return ssl ? tls.connect({host,port,...ssl,servername},onConnect) : net.connect({host,port},onConnect);
     },
     connectionTimeout: 10000, requestTimeout: 15000, retry: { retries: 1 },
     ssl: { rejectUnauthorized: true, ...(c.ca ? { ca: [c.ca] } : {}), ...(c.mode === 'ssl' ? { key: c.key, cert: c.cert } : {}) },
