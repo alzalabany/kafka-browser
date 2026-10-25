@@ -30,6 +30,10 @@
 *.pfx
 *.jks
 /artifacts/
+/.desktop/
+firebase-debug.log*
+firestore-debug.log*
+ui-debug.log*
 user-access-certificate.crt
 
 # debug
@@ -40,6 +44,7 @@ yarn-error.log*
 
 # env files (can opt-in for committing if needed)
 .env*
+!.env.example
 
 # vercel
 .vercel

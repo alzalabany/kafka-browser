@@ -1,0 +1,53 @@
+name: kafka-browser
+region: fra
+services:
+  - name: web
+    github:
+      repo: alzalabany/kafka-browser
+      branch: master
+      deploy_on_push: true
+    environment_slug: node-js
+    source_dir: /
+    build_command: npm ci && npm run build:hosted
+    run_command: node .next/standalone/server.js
+    http_port: 8080
+    instance_count: 1
+    instance_size_slug: apps-s-1vcpu-1gb
+    health_check:
+      http_path: /api/health
+      initial_delay_seconds: 30
+    envs:
+      - key: KAFKA_BROWSER_MODE
+        value: hosted
+      - key: NODE_ENV
+        value: production
+      - key: HOSTNAME
+        value: 0.0.0.0
+      - key: NEXT_TELEMETRY_DISABLED
+        value: '1'
+      - key: APP_ORIGIN
+        value: ${APP_URL}
+        scope: RUN_TIME
+      - key: FIREBASE_PROJECT_ID
+        value: amana-kafka-browser
+      - key: FIREBASE_AUTH_DOMAIN
+        value: amana-kafka-browser.firebaseapp.com
+      - key: FIREBASE_WEB_APP_ID
+        value: 1:208259125900:web:b68beac76cbbcd36c0a1a9
+      - key: FIREBASE_WEB_API_KEY
+        value: REPLACE_WITH_FIREBASE_WEB_API_KEY
+        scope: RUN_TIME
+      - key: FIREBASE_SERVICE_ACCOUNT_JSON
+        type: SECRET
+        scope: RUN_TIME
+        value: REPLACE_WITH_SERVICE_ACCOUNT_JSON
+      - key: KAFKA_CREDENTIALS_KEY
+        type: SECRET
+        scope: RUN_TIME
+        value: REPLACE_WITH_BASE64_32_BYTE_KEY
+      - key: ALLOWED_EMAIL_DOMAINS
+        value: amanacapital.com
+        scope: RUN_TIME
+      - key: KAFKA_ALLOWED_HOSTS
+        value: REPLACE_WITH_COMMA_SEPARATED_BROKER_HOSTS
+        scope: RUN_TIME

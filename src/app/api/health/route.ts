@@ -1,12 +1,10 @@
-import {db} from '@/lib/db';
-
+import { hosted, requireHostedConfig } from '@/lib/hosted-config';
 export const runtime='nodejs';
 export const dynamic='force-dynamic';
-export function GET() {
+export async function GET() {
   try {
-    db.prepare('SELECT 1').get();
+    if (hosted()) requireHostedConfig();
+    else { const {db}=await import('@/lib/db'); db.prepare('SELECT 1').get(); }
     return Response.json({status:'ok'});
-  } catch {
-    return Response.json({status:'unhealthy'},{status:503});
-  }
+  } catch { return Response.json({status:'unhealthy'},{status:503}); }
 }

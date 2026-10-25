@@ -1,5 +1,11 @@
 # Kafka Browser
 
+## Hosted company workspace
+
+Google sign-in, company-shared Kafka connections, personal or company filters/transformers, and optional shared favorites/table layouts are available in hosted mode. Only verified `amanacapital.com` Google accounts are admitted in the initial configuration. DigitalOcean App Platform runs the Node server directly from GitHub; Firebase Firestore stores durable settings and encrypted connection credentials.
+
+See [hosted deployment and configuration](docs/hosted.md) and [.do/app.yaml](.do/app.yaml). Hosting is not live until the app is created in DigitalOcean and its URL is added to Firebase's authorized domains. Local SQLite/Docker mode is still available below.
+
 ## Run in the background with Docker
 
 ```sh
@@ -62,7 +68,7 @@ Local SQLite data, certificate files, environment files, screenshots, and Git hi
 
 ## Run from source
 
-A small local Next.js Kafka developer tool. Requires Node.js 22+ and network access to your brokers.
+A small Next.js Kafka developer tool. Use Node.js 24 LTS and ensure network access to your brokers.
 
 ```sh
 npm install

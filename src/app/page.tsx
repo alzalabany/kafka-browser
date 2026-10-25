@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import Link from 'next/link';
 import RulesSidebar from './rules-sidebar';
 import TableSettings from './table-settings';
@@ -12,6 +12,7 @@ import { appendMessage, toJsonl } from '@/lib/messages';
 import { compileMessageRules, processMessages } from '@/lib/message-pipeline';
 import type { Preset } from '@/lib/presets';
 import { selectedRules, ruleScope, type TopicRules, type RuleSelection } from '@/lib/rule-selection';
+import { useHostedWorkspace } from './auth-gate';
 
 type Topic = { name: string; partitions: number };
 type ViewState = { favorites?: string[]; topic?: string; allTopics?: boolean; topicRules?:TopicRules; tableViews?:Record<string,TableView> };
@@ -20,6 +21,8 @@ const pretty = (v: unknown) => v === undefined ? '(missing)' : JSON.stringify(v,
 async function api(url: string, options?: RequestInit) { const res = await fetch(url, options); const data = await res.json(); if (!res.ok) throw new Error(data.error || 'Request failed'); return data; }
 
 export default function Home() {
+  const hosted = useHostedWorkspace();
+  const [viewScope,setViewScope]=useState<'personal'|'company'>('personal');
   const [connections, setConnections] = useState<Connection[]>([]), [active, setActive] = useState('');
   const [topics, setTopics] = useState<Topic[]>([]), [state, setState] = useState<ViewState>({}), [loaded, setLoaded] = useState(false);
   const [topicSearch, setTopicSearch] = useState(''), [onlyFavorites, setOnlyFavorites] = useState(false);
@@ -37,17 +40,18 @@ export default function Home() {
   const source = useRef<EventSource | null>(null), generation = useRef(0);
   const [presets,setPresets]=useState<Preset[]>([]),[presetsLoaded,setPresetsLoaded]=useState(false);
   const stateWrites=useRef<Promise<unknown>>(Promise.resolve());
-  const persistView = (key:string,value:ViewState) => {
-    stateWrites.current=stateWrites.current.catch(()=>{}).then(()=>api('/api/state',{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify({key,value}),keepalive:true}));
+  const persistView = useCallback((key:string,value:ViewState) => {
+    stateWrites.current=stateWrites.current.catch(()=>{}).then(()=>api('/api/state',{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify({key,value,scope:viewScope}),keepalive:true}));
     void stateWrites.current.catch(e=>setError((e as Error).message));
-  };
+  },[viewScope]);
   const current = connections.find(c => c.id === active);
   const scope=ruleScope(state.topic,state.allTopics);
   const selection=state.topicRules?.[scope] || NONE;
   const tableView=state.tableViews?.[scope] || DEFAULT_TABLE;
   const tableGrid=tableView.columns.length?{gridTemplateColumns:`minmax(230px,1fr) 110px 130px ${tableView.columns.map(()=>'160px').join(' ')}`} : undefined;
   const saveTable=(view:TableView)=>{const next={...state,tableViews:{...state.tableViews,[scope]:view}};setState(next);persistView(active,next);};
-  const rules=useMemo(()=>selectedRules(presets,selection),[presets,selection]);
+  const availablePresets=useMemo(()=>viewScope==='company'?presets.filter(p=>p.scope==='company'):presets,[presets,viewScope]);
+  const rules=useMemo(()=>selectedRules(availablePresets,selection),[availablePresets,selection]);
   const transformActive=Boolean(rules.transform?.trim());
   const searchingAll = Boolean(state.allTopics && (status === 'Live' || status === 'Connecting'));
   const stop = () => { source.current?.close(); source.current = null; setStatus('Stopped'); };
@@ -61,13 +65,13 @@ export default function Home() {
     // A connection change resets the external Kafka session and its local buffer.
     // eslint-disable-next-line react-hooks/set-state-in-effect
     setLoaded(false); setTopics([]); setMessages([]); setSelected([]); setStatus('Idle'); setPaused(null); setReceived(0);
-    void api(`/api/state?key=${active}`).then(s => { if (!cancelled) { setState(s); setLoaded(true); } }).catch(e => setError(e.message));
+    void api(`/api/state?key=${active}&scope=${viewScope}`).then(s => { if (!cancelled) { setState(s); setLoaded(true); } }).catch(e => setError(e.message));
     void api('/api/state', {method:'PUT', headers:{'Content-Type':'application/json'}, body:JSON.stringify({key:'app',value:{active}})});
     void loadTopics(active);
     return () => { cancelled = true; source.current?.close(); };
-  }, [active]);
+  }, [active,viewScope]);
   useEffect(() => { if (!loaded || !active) return; const timer=setTimeout(()=>persistView(active,state),350);return()=>clearTimeout(timer);
-  },[state,active,loaded]);
+  },[state,active,loaded,viewScope,persistView]);
   const changeSelection=(nextSelection:RuleSelection)=>{
     const next={...state,topicRules:{...state.topicRules,[scope]:nextSelection}};
     setState(next);persistView(active,next);
@@ -142,7 +146,8 @@ export default function Home() {
   return <div className="app-shell">
     <aside className="sidebar">
       <Link className="brand" href="/"><span className="brand-icon"><Activity size={22}/></span> kafka<span className="brand-light">browser</span><span className="dev-tag">DEV</span></Link>
-      <div className="side-label">WORKSPACE <span>LOCAL</span></div>
+      <div className="side-label">WORKSPACE <span>{hosted?'COMPANY':'LOCAL'}</span></div>
+      {hosted&&<label className="sharing-choice">Favorites, rule selections & table layouts<select aria-label="View settings sharing" value={viewScope} onChange={e=>setViewScope(e.target.value as 'personal'|'company')}><option value="personal">Personal settings</option><option value="company">Company settings (shared)</option></select><small>{viewScope==='company'?'Changes apply to everyone using company settings. Only company rules can be selected.':'Private to your account. Company connections remain shared.'}</small></label>}
       <div className="connection-box"><Database size={18}/><select aria-label="Connection" value={active} onChange={e => setActive(e.target.value)}><option value="" disabled>Select connection</option>{connections.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}</select><button className="icon" title="Add connection" onClick={() => openConnection()}><Plus size={17}/></button></div>
       {current && <div className="connection-meta"><span className="tiny-dot"/>{current.mode.toUpperCase()} · {current.host}:{current.port}<button className="icon" title="Edit/test connection" onClick={() => openConnection(current)}><Settings2 size={12}/></button><button className="icon" title="Delete connection" onClick={remove}><Trash2 size={12}/></button></div>}
       <div className="side-heading"><span>TOPICS <b>{topics.length}</b></span><button className="icon" title="Refresh topics" disabled={!active || loading} onClick={() => void loadTopics(active)}><RefreshCw size={14} className={loading ? 'spin' : ''}/></button></div>
@@ -171,7 +176,7 @@ export default function Home() {
         <footer className="workspace-footer"><span><span className="tiny-dot"/> Your workspace, on your machine.</span><span>Built for the moments between deployments.</span></footer>
       </section>
     </main>
-    <RulesSidebar key={`${active}:${scope}`} presets={presets} selection={selection} disabled={!active || !loaded || !presetsLoaded || (!state.topic && !state.allTopics)} locked={searchingAll} scopeLabel={`${current?.name || 'Connection'} · ${state.allTopics ? 'All topics' : state.topic || 'Select a topic'}`} onChange={changeSelection} onPresets={setPresets}/>
+    <RulesSidebar key={`${active}:${scope}:${viewScope}`} presets={availablePresets} defaultScope={viewScope} selection={selection} disabled={!active || !loaded || !presetsLoaded || (!state.topic && !state.allTopics)} locked={searchingAll} scopeLabel={`${current?.name || 'Connection'} · ${state.allTopics ? 'All topics' : state.topic || 'Select a topic'}`} onChange={changeSelection} onPresets={setPresets}/>
     {modal && <div className="modal-backdrop"><section className="modal" role="dialog" aria-modal="true" aria-labelledby="connection-title"><div className="modal-title"><div><span className="eyebrow">{editing ? 'EDIT CONNECTION' : 'NEW CONNECTION'}</span><h2 id="connection-title">{editing ? 'Update your cluster' : 'Connect your cluster'}</h2></div><button className="icon" aria-label="Close" disabled={saving || testing} onClick={() => setModal(false)}><X size={19}/></button></div><p className="muted">Credentials and settings are stored in local SQLite.</p><form key={editing?.id || 'new'} onSubmit={save} onChange={() => setTestStatus('')}><fieldset disabled={saving || testing}><input type="hidden" name="id" value={editing?.id || ''}/><label>Connection name<input name="name" placeholder="e.g. Development cluster" defaultValue={editing?.name || ''} required/></label><div className="mode-toggle"><button type="button" className={mode === 'ssl' ? 'active' : ''} onClick={() => setMode('ssl')}>SSL · Certificate</button><button type="button" className={mode === 'sasl' ? 'active' : ''} onClick={() => setMode('sasl')}>SASL · Password</button></div><input type="hidden" name="mode" value={mode}/><label>Service URI <span>optional, overrides host and port</span><input name="uri" placeholder="db-kafka.example.com:25062"/></label><div className="form-grid"><label>Host<input name="host" placeholder="db-kafka.example.com" defaultValue={editing?.host || ''}/></label><label>Port<input name="port" type="number" min="1" max="65535" defaultValue={editing?.mode === mode ? editing.port : mode === 'ssl' ? 25062 : 25073} key={mode}/></label></div>{mode === 'ssl' ? <div className="form-grid"><label>Access key<input name="key" type="file" required={editing?.mode !== mode}/></label><label>Access certificate<input name="cert" type="file" required={editing?.mode !== mode}/></label></div> : <><div className="form-grid"><label>Username<input name="username" placeholder="doadmin" defaultValue={editing?.username || ''} required autoComplete="off"/></label><label>Password<input name="password" type="password" required={editing?.mode !== mode} placeholder={editing?.mode === mode ? 'Leave blank to keep saved password' : ''} autoComplete="new-password"/></label></div><label>SASL mechanism<select name="mechanism" defaultValue={editing?.mechanism || 'plain'}><option value="plain">PLAIN</option><option value="scram-sha-256">SCRAM-SHA-256</option><option value="scram-sha-512">SCRAM-SHA-512</option></select></label></>}<label>CA certificate {mode === 'ssl' && <span>optional · system trust by default</span>}<input name="ca" type="file" required={mode === 'sasl' && editing?.mode !== mode}/></label>{editing?.mode === mode && <p className="saved-secret-note">Leave password and certificate uploads empty to keep saved credentials.</p>}{editing?.mode === 'ssl' && mode === 'ssl' && <label className="clear-ca"><input type="checkbox" name="clearCa"/> Remove saved CA and use system trust</label>}{formError && <div className="error" role="alert">{formError}</div>}{testStatus && <p className="test-success" role="status">{testStatus}</p>}<div className="modal-footer"><span>PEM certificate files · TLS verified</span><div className="modal-actions"><button className="secondary" type="submit" name="action" value="test" disabled={saving || testing}>{testing ? 'Testing…' : 'Test connection'}</button><button className="primary" type="submit" name="action" value="save" disabled={saving || testing}>{saving ? 'Saving…' : editing ? 'Save changes' : 'Save & connect'}<ArrowRight size={15}/></button></div></div></fieldset></form></section></div>}
   </div>;
 }

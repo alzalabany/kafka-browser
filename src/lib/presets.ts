@@ -1,15 +1,16 @@
 import type Database from 'better-sqlite3';
 import { randomUUID } from 'node:crypto';
 
-export type Preset = { id: string; name: string; kind: 'filter' | 'transform'; search: string; js: string; transform: string };
+export type Preset = { id: string; name: string; kind: 'filter' | 'transform'; search: string; js: string; transform: string; scope?:'personal'|'company' };
 
 export function readPreset(input: unknown): Omit<Preset, 'id'> {
   if (!input || typeof input !== 'object') throw new Error('Invalid preset');
   const value = input as Record<string, unknown>;
+  if (value.scope !== undefined && value.scope !== 'personal' && value.scope !== 'company') throw new Error('Invalid rule sharing scope');
   if (typeof value.name !== 'string' || !value.name.trim() || value.name.trim().length > 100) throw new Error('Enter a preset name (1–100 characters).');
   if (value.kind !== 'filter' && value.kind !== 'transform') throw new Error('Invalid preset kind');
   for (const key of ['search', 'js', 'transform']) if (value[key] !== undefined && (typeof value[key] !== 'string' || value[key].length > 100_000)) throw new Error('Invalid preset content');
-  return {name:value.name.trim(), kind:value.kind, search:value.kind === 'filter' ? value.search as string || '' : '', js:value.kind === 'filter' ? value.js as string || '' : '', transform:value.kind === 'transform' ? value.transform as string || '' : ''};
+  return {name:value.name.trim(), kind:value.kind, search:value.kind === 'filter' ? value.search as string || '' : '', js:value.kind === 'filter' ? value.js as string || '' : '', transform:value.kind === 'transform' ? value.transform as string || '' : '', ...(value.scope ? {scope:value.scope as 'personal'|'company'} : {})};
 }
 
 export function presetStore(db: Database.Database) {

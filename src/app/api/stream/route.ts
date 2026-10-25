@@ -1,26 +1,36 @@
-import { connection } from '@/lib/db';
+import { userStore } from '@/lib/user-store';
+import { withUser } from '@/lib/auth';
+import { hosted } from '@/lib/hosted-config';
+import { streamLease } from '@/lib/stream-limits';
 import { kafka } from '@/lib/kafka';
 import { readTimestamp, readTailCount, timestampOffsets, tailOffsets, seekOnFirstJoin } from '@/lib/stream-position';
 import { messageId } from '@/lib/messages';
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
-export async function GET(request: Request) {
-  const url = new URL(request.url); const c = connection(url.searchParams.get('connection') || ''); const topic = url.searchParams.get('topic');
+export const GET = withUser(async (request,user) => {
+  const url = new URL(request.url); const c = await (await userStore(user.uid,user.email)).connection(url.searchParams.get('connection') || ''); const topic = url.searchParams.get('topic');
   const allTopics = url.searchParams.get('scope') === 'all';
   if (!c || (!topic && !allTopics)) return Response.json({error:'Connection and topic (or all-topics scope) are required'}, {status:400});
   let timestamp: number | undefined; let tailCount: number | undefined;
   try { timestamp = readTimestamp(url.searchParams.get('from'), url.searchParams.get('timestamp')); tailCount = readTailCount(url.searchParams.get('from'), url.searchParams.get('count')); }
   catch (e) { return Response.json({error:(e as Error).message}, {status:400}); }
   const client = kafka(c);
+  const lease = hosted() ? streamLease(user.uid) : undefined;
   const consumer = client.consumer({ groupId: `kafka-browser-${crypto.randomUUID()}`, allowAutoTopicCreation: false });
   const admin = timestamp !== undefined || tailCount !== undefined || allTopics ? client.admin() : undefined;
   const positionClients: ReturnType<typeof client.admin>[] = [];
   let closed = false; let timer: ReturnType<typeof setInterval> | undefined;
-  const close = async () => { if (closed) return; closed = true; clearInterval(timer); await Promise.allSettled([consumer.disconnect(), admin?.disconnect(), ...positionClients.map(a => a.disconnect())]); };
+  let expiry:ReturnType<typeof setTimeout>|undefined;
+  let finish = () => {};
+  const close = async () => { if (closed) return; closed = true; clearInterval(timer); clearTimeout(expiry); lease?.release(); request.signal.removeEventListener('abort',finish); await Promise.allSettled([consumer.disconnect(), admin?.disconnect(), ...positionClients.map(a => a.disconnect())]); };
   const stream = new ReadableStream({
     start(controller) {
       const send = (event: string, data: unknown) => { if (!closed) { try { controller.enqueue(new TextEncoder().encode(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`)); } catch { void close(); } } };
-      request.signal.addEventListener('abort', () => { void close(); }, { once: true });
+      finish = () => { void close().then(() => { try {controller.close();} catch {} }); };
+      request.signal.addEventListener('abort',finish,{once:true});
+      lease?.onCancel(finish);
+      if (request.signal.aborted) { finish(); return; }
+      if (hosted()) expiry=setTimeout(() => {send('failure',{error:'Stream session ended. Start streaming again to continue.'});finish();},Math.max(1,Math.min(30*60*1000,user.expiresAt-Date.now())));
       timer = setInterval(() => send('heartbeat', {}), 15000);
       consumer.on(consumer.events.CRASH, ({payload}) => { send('failure', {error: payload.error.message}); void close().then(() => { try {controller.close();} catch {} }); });
       void (async () => {
@@ -69,4 +79,4 @@ export async function GET(request: Request) {
     cancel: close,
   });
   return new Response(stream, { headers: {'Content-Type':'text/event-stream', 'Cache-Control':'no-cache, no-transform', Connection:'keep-alive', 'X-Accel-Buffering':'no'} });
-}
+});

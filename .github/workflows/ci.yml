@@ -26,3 +26,18 @@ jobs:
       - run: npm test
       - run: npm run build
       - run: npx tsc --noEmit
+  firestore:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+      - run: npm ci
+      - name: Verify company sharing and personal data isolation
+        run: npx --yes firebase-tools@15.6.0 emulators:exec --only firestore --project demo-kafka-browser "npx tsx --test src/lib/hosted-store.test.ts"

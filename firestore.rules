@@ -1,0 +1,8 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // All reads/writes go through the authenticated Next.js API.
+    // The Admin SDK enforces company/personal scope in user-store.ts.
+    match /{document=**} { allow read, write: if false; }
+  }
+}
